@@ -1,0 +1,37 @@
+{
+  "name": "claude-hero",
+  "version": "0.1.0",
+  "description": "A terminal rhythm mini-game that runs while Claude Code executes",
+  "bin": {
+    "claude-hero": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "start": "node dist/cli.js",
+    "dev": "ts-node src/cli.ts",
+    "clean": "rm -rf dist"
+  },
+  "files": [
+    "dist/",
+    "songs/"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "rhythm-game",
+    "terminal",
+    "cli",
+    "clone-hero"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
