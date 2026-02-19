@@ -2,12 +2,18 @@
 
 A terminal rhythm game that runs inside Claude Code while you wait for Claude to think.
 
+https://github.com/user-attachments/assets/604da9bf-bff4-44f1-8b12-5a6f74146944
+
+
 ## Install
 
 ```bash
 git clone <repo> claude-hero
 cd claude-hero
-./install.sh          # builds + installs as a Claude Code plugin
+./install.sh          # builds + installs as a Claude Code plu
+
+
+gin
 ```
 
 Requires: `node >= 18`, `jq`, `claude` CLI.
