@@ -10,10 +10,10 @@ https://github.com/user-attachments/assets/604da9bf-bff4-44f1-8b12-5a6f74146944
 ```bash
 git clone <repo> claude-hero
 cd claude-hero
-./install.sh          # builds + installs as a Claude Code plu
+./install.sh          # builds + installs as a Claude Code plugin
 
 
-gin
+
 ```
 
 Requires: `node >= 18`, `jq`, `claude` CLI.
