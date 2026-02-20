@@ -1,51 +1,75 @@
 /**
- * VibeBlock lobby — shown between games when the terminal stays open.
+ * Lobby — shown between games when the terminal stays open.
+ *
+ * Writes a PID file so on-prompt.sh can detect the open window and
+ * trigger a new game without spawning another terminal.
  *
  * Trigger protocol:
- *   on-prompt.sh writes  /tmp/vibeblock-trigger.json
- *     {"statusFile": "/tmp/vibeblock-<id>.json", "timestamp": <epochMs>}
- *   Lobby reads + deletes it, returns the statusFile.
- *   Q / Ctrl+C → returns null (close window).
+ *   on-prompt.sh writes  /tmp/claude-hero-trigger.json
+ *     {"statusFile": "/tmp/claude-hero-<id>.json", "timestamp": <epochMs>}
+ *   The lobby reads it, deletes it, and returns the statusFile path.
+ *   If the user presses Q / Ctrl+C first, returns null.
  */
 
 import * as fs from "fs";
-import { loadSettings, saveSettings } from "./settings";
 
-const LOBBY_FILE = "/tmp/vibeblock-lobby.json";
-const TRIGGER_FILE = "/tmp/vibeblock-trigger.json";
+const LOBBY_FILE = "/tmp/claude-hero-lobby.json";
+const TRIGGER_FILE = "/tmp/claude-hero-trigger.json";
 const POLL_MS = 300;
 
-// ANSI inline helpers
-const E = "\x1b";
-const RST = E + "[0m";
-const B = E + "[1m";
-const DIM = E + "[2m";
-const CLR = E + "[2J" + E + "[H"; // clear screen + home
-
-const CYAN = E + "[38;2;0;255;255m";
-const MAG = E + "[38;2;255;0;255m";
-const GREEN = E + "[38;2;57;255;20m";
-const YELLOW = E + "[38;2;230;255;0m";
-const ORANGE = E + "[38;2;255;102;0m";
+// ANSI helpers (inline to avoid importing the full screen module in raw mode)
+const CSI = "\x1b[";
+const RESET = `${CSI}0m`;
+const BOLD = `${CSI}1m`;
+const DIM = `${CSI}2m`;
+const CYAN = `${CSI}36m`;
+const BBLACK = `${CSI}90m`;
+const YELLOW = `${CSI}93m`;
 
 export interface Trigger {
   statusFile: string;
 }
 
+/**
+ * Enter lobby mode: write PID file, show waiting screen, poll for trigger.
+ * Returns Trigger when a new prompt arrives, or null when user quits.
+ */
 export async function enterLobby(): Promise<Trigger | null> {
   writeLobbyFile();
 
+  process.stdout.write("\n");
+  process.stdout.write(
+    `${BOLD}${CYAN}╔══════════════════════════════════════╗${RESET}\n`,
+  );
+  process.stdout.write(
+    `${BOLD}${CYAN}║  🎸  CLAUDE HERO  —  LOBBY           ║${RESET}\n`,
+  );
+  process.stdout.write(
+    `${BOLD}${CYAN}╚══════════════════════════════════════╝${RESET}\n`,
+  );
+  process.stdout.write("\n");
+  process.stdout.write(
+    `${DIM}${BBLACK}  This window will automatically restart when you send\n`,
+  );
+  process.stdout.write(`  the next prompt to Claude Code.\n${RESET}`);
+  process.stdout.write("\n");
+  process.stdout.write(`  ${YELLOW}Press Q to close this window.${RESET}\n`);
+  process.stdout.write("\n");
+
   return new Promise((resolve) => {
     let resolved = false;
-    let inSettings = false;
 
     // Poll for trigger file
     const interval = setInterval(() => {
-      if (resolved || inSettings) return;
-      const t = readTrigger();
-      if (t) done(t);
+      if (resolved) return;
+      const trigger = readTrigger();
+      if (trigger) {
+        done(trigger);
+      }
     }, POLL_MS);
 
+    // Keyboard — raw mode was already exited after results screen.
+    // Re-enable raw mode briefly to catch Q.
     let rawOn = false;
     if (process.stdin.isTTY) {
       try {
@@ -55,208 +79,12 @@ export async function enterLobby(): Promise<Trigger | null> {
     }
     process.stdin.resume();
 
-    function showLobby() {
-      const s = loadSettings();
-      process.stdout.write(CLR);
-      process.stdout.write("\n");
-      process.stdout.write(
-        " " + CYAN + B + "+==========================+" + RST + "\n",
-      );
-      process.stdout.write(
-        " " +
-          CYAN +
-          B +
-          "|" +
-          RST +
-          B +
-          MAG +
-          "  ▸ VIBEBLOCK            " +
-          RST +
-          CYAN +
-          B +
-          "|" +
-          RST +
-          "\n",
-      );
-      process.stdout.write(
-        " " +
-          CYAN +
-          B +
-          "|" +
-          RST +
-          DIM +
-          "    AWAITING NEURAL LINK  " +
-          RST +
-          CYAN +
-          B +
-          "|" +
-          RST +
-          "\n",
-      );
-      process.stdout.write(
-        " " + CYAN + B + "+==========================+" + RST + "\n",
-      );
-      process.stdout.write("\n");
-      process.stdout.write(
-        " " +
-          YELLOW +
-          B +
-          "[S]" +
-          RST +
-          DIM +
-          " Settings  " +
-          RST +
-          YELLOW +
-          B +
-          "[Q]" +
-          RST +
-          DIM +
-          " Quit\n" +
-          RST,
-      );
-      process.stdout.write("\n");
-      const autoStr = s.autoStopOnClaudeDone
-        ? GREEN + "ON" + RST
-        : DIM + "OFF" + RST;
-      const soundStr = s.soundEnabled ? GREEN + "ON" + RST : DIM + "OFF" + RST;
-      process.stdout.write(DIM + "  Auto-stop:     " + RST + autoStr + "\n");
-      process.stdout.write(DIM + "  Sound effects: " + RST + soundStr + "\n");
-      process.stdout.write(
-        DIM +
-          "  Start level:   " +
-          RST +
-          CYAN +
-          String(s.startingLevel) +
-          RST +
-          "\n",
-      );
-    }
-
-    function showSettings() {
-      const s = loadSettings();
-      process.stdout.write(CLR);
-      process.stdout.write("\n");
-      process.stdout.write(
-        " " + CYAN + B + "+==========================+" + RST + "\n",
-      );
-      process.stdout.write(
-        " " +
-          CYAN +
-          B +
-          "|" +
-          RST +
-          B +
-          MAG +
-          "  SETTINGS               " +
-          RST +
-          CYAN +
-          B +
-          "|" +
-          RST +
-          "\n",
-      );
-      process.stdout.write(
-        " " + CYAN + B + "+==========================+" + RST + "\n",
-      );
-      process.stdout.write("\n");
-
-      const autoStr = s.autoStopOnClaudeDone
-        ? GREEN + B + "[ON] " + RST
-        : ORANGE + "[OFF]" + RST;
-      const soundStr = s.soundEnabled
-        ? GREEN + B + "[ON] " + RST
-        : ORANGE + "[OFF]" + RST;
-
-      process.stdout.write(
-        " " +
-          YELLOW +
-          "[1]" +
-          RST +
-          " Auto-stop when Claude done: " +
-          autoStr +
-          "\n",
-      );
-      process.stdout.write(
-        " " +
-          YELLOW +
-          "[2]" +
-          RST +
-          " Sound effects:              " +
-          soundStr +
-          "\n",
-      );
-      process.stdout.write(
-        " " +
-          YELLOW +
-          "[+]" +
-          RST +
-          DIM +
-          "/" +
-          RST +
-          YELLOW +
-          "[-]" +
-          RST +
-          " Starting level: " +
-          CYAN +
-          B +
-          String(s.startingLevel) +
-          RST +
-          "\n",
-      );
-      process.stdout.write("\n");
-      process.stdout.write(" " + DIM + "[ESC]  Back" + RST + "\n");
-    }
-
-    showLobby();
-
     const onKey = (chunk: Buffer) => {
       const ch = chunk.toString("utf-8");
-
-      if (!inSettings) {
-        if (ch === "q" || ch === "Q" || ch === "\x03" || ch === "\x04") {
-          done(null);
-          return;
-        }
-        if (ch === "s" || ch === "S") {
-          inSettings = true;
-          showSettings();
-          return;
-        }
-      } else {
-        // Back from settings
-        if (ch === "\x1b") {
-          inSettings = false;
-          showLobby();
-          return;
-        }
-        const s = loadSettings();
-        if (ch === "1") {
-          s.autoStopOnClaudeDone = !s.autoStopOnClaudeDone;
-          saveSettings(s);
-          showSettings();
-          return;
-        }
-        if (ch === "2") {
-          s.soundEnabled = !s.soundEnabled;
-          saveSettings(s);
-          showSettings();
-          return;
-        }
-        if (ch === "+" || ch === "=") {
-          s.startingLevel = Math.min(10, s.startingLevel + 1);
-          saveSettings(s);
-          showSettings();
-          return;
-        }
-        if (ch === "-" || ch === "_") {
-          s.startingLevel = Math.max(1, s.startingLevel - 1);
-          saveSettings(s);
-          showSettings();
-          return;
-        }
+      if (ch === "q" || ch === "Q" || ch === "\x03" || ch === "\x04") {
+        done(null);
       }
     };
-
     process.stdin.on("data", onKey);
 
     function done(result: Trigger | null) {
@@ -275,7 +103,7 @@ export async function enterLobby(): Promise<Trigger | null> {
   });
 }
 
-// ── File helpers ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
 function writeLobbyFile(): void {
   try {
@@ -292,10 +120,10 @@ function deleteLobbyFile(): void {
 function readTrigger(): Trigger | null {
   try {
     if (!fs.existsSync(TRIGGER_FILE)) return null;
-    const obj = JSON.parse(fs.readFileSync(TRIGGER_FILE, "utf-8")) as {
-      statusFile?: string;
-    };
+    const raw = fs.readFileSync(TRIGGER_FILE, "utf-8");
+    const obj = JSON.parse(raw) as { statusFile?: string; timestamp?: number };
     if (!obj.statusFile) return null;
+    // Consume it immediately so we don't double-trigger
     try {
       fs.unlinkSync(TRIGGER_FILE);
     } catch (_) {}
@@ -305,8 +133,11 @@ function readTrigger(): Trigger | null {
   }
 }
 
+/** Clean up lobby file on unexpected termination. */
 export function registerLobbyCleanup(): void {
-  const cleanup = () => deleteLobbyFile();
+  const cleanup = () => {
+    deleteLobbyFile();
+  };
   process.on("exit", cleanup);
   process.on("SIGTERM", () => {
     cleanup();

@@ -1,109 +1,75 @@
 /**
- * VibeBlock game loop.
+ * Main game loop — ties together Claude status, audio, renderer, input, and scoring.
  *
- * Plugin mode:   status = StatusWatcher (reads hook file)
- * CLI wrapper:   status = ClaudeRunner  (wraps subprocess)
+ * Operates in two modes:
+ *   Plugin mode:      `status` is a StatusWatcher reading a hook-written file.
+ *                     Claude is already running externally in Claude Code.
+ *   CLI wrapper mode: `status` is a ClaudeRunner wrapping a subprocess.
+ *                     Claude is started via `status.start()`.
  */
 
 import { performance } from "perf_hooks";
 import { AudioPlayer } from "../audio/player";
-import {
-  isSoundEnabled,
-  playClaudeDone,
-  playLineClear,
-  playMove,
-  setSoundEnabled,
-} from "../audio/sfx";
-import { Keyboard } from "../input/keyboard";
-import { renderFrame } from "../renderer/game-view";
+import { Song } from "../chart/types";
+import { Keyboard, KeyEvent } from "../input/keyboard";
+import { FeedbackKind, renderFrame } from "../renderer/game-view";
 import { enterGameMode, exitGameMode } from "../renderer/screen";
 import { IClaudeStatus } from "../status";
-import {
-  gravityDrop,
-  hardDrop,
-  hold,
-  moveLeft,
-  moveRight,
-  rotate,
-  softDrop,
-  togglePause,
-} from "./actions";
 import { showResults } from "./results";
-import { loadSettings, saveSettings } from "./settings";
+import { processHit, processMissedNotes } from "./scoring";
 import { createInitialState } from "./state";
 
 const TARGET_FPS = 60;
 const FRAME_MS = 1000 / TARGET_FPS;
 
 export class GameLoop {
-  private readonly state;
-  private readonly audio = new AudioPlayer();
-  private readonly keyboard = new Keyboard();
-  private claudeDoneNotified = false;
+  private state = createInitialState();
+  private audio = new AudioPlayer();
+  private keyboard = new Keyboard();
+
+  private feedbackKind: FeedbackKind = null;
+  private feedbackLane = 0;
+  private feedbackUntilMs = 0;
 
   constructor(
-    private readonly status: IClaudeStatus,
-    private readonly audioPath?: string,
-  ) {
-    const settings = loadSettings();
-    setSoundEnabled(settings.soundEnabled);
-    this.state = createInitialState(
-      settings.startingLevel,
-      settings.autoStopOnClaudeDone,
-    );
-  }
+    private status: IClaudeStatus,
+    private song: Song,
+  ) {}
 
   async run(): Promise<void> {
     enterGameMode();
 
-    // CLI wrapper mode: start subprocess. Plugin mode: no-op.
+    // In CLI wrapper mode, start the subprocess now.
+    // In plugin mode, Claude is already running — status.start is undefined.
     this.status.start?.();
 
-    // ── Keyboard bindings ──────────────────────────────────────────────────
-    this.keyboard.on("move-left", () => {
-      moveLeft(this.state);
-      playMove();
-    });
-    this.keyboard.on("move-right", () => {
-      moveRight(this.state);
-      playMove();
-    });
-    this.keyboard.on("rotate", () => {
-      rotate(this.state);
-      playMove();
-    });
-    this.keyboard.on("soft-drop", () =>
-      softDrop(this.state, performance.now()),
-    );
-    this.keyboard.on("hard-drop", () => hardDrop(this.state));
-    this.keyboard.on("hold", () => {
-      hold(this.state);
-      playMove();
-    });
-    this.keyboard.on("pause", () => togglePause(this.state));
-    this.keyboard.on("toggle-sound", () => {
-      const next = !isSoundEnabled();
-      setSoundEnabled(next);
-      // Persist the preference
-      const s = loadSettings();
-      s.soundEnabled = next;
-      saveSettings(s);
+    // Keyboard events
+    this.keyboard.on("hit", (event: KeyEvent) => {
+      this.state.activeKeys.add(event.lane);
+      const gameTimeMs = event.timeMs - this.audio.audioStartTimestamp;
+      const result = processHit(
+        event.lane,
+        gameTimeMs,
+        this.song.notes,
+        this.state,
+      );
+      this.feedbackKind = result;
+      this.feedbackLane = event.lane;
+      this.feedbackUntilMs = event.timeMs + 500;
+      setTimeout(() => this.state.activeKeys.delete(event.lane), 80);
     });
     this.keyboard.on("quit", () => {
       this.state.quitRequested = true;
-      if (!this.state.clearReason) this.state.clearReason = "quit";
     });
     this.keyboard.start();
 
-    // ── Audio ──────────────────────────────────────────────────────────────
-    if (this.audioPath) {
-      this.audio.play(this.audioPath);
+    // Start audio (if available)
+    if (this.song.audioPath) {
+      this.audio.play(this.song.audioPath);
     } else {
       this.audio.audioStartTimestamp = performance.now();
     }
 
-    const startTime = performance.now();
-    this.state.lastDropTime = startTime;
     this.state.isRunning = true;
 
     await this.loop();
@@ -113,62 +79,52 @@ export class GameLoop {
     this.state.isRunning = false;
 
     exitGameMode();
-    await showResults(this.state, this.status.output);
+    showResults(this.state, this.song, this.status.output);
   }
 
   private loop(): Promise<void> {
     return new Promise<void>((resolve) => {
       const tick = () => {
+        if (this.state.quitRequested) {
+          resolve();
+          return;
+        }
+
         const frameStart = performance.now();
 
-        // ── Sync Claude status ─────────────────────────────────────────────
-        const prevClaudeState = this.state.claudeState;
+        // Update game clock
+        this.state.currentTimeMs = frameStart - this.audio.audioStartTimestamp;
+
+        // Sync Claude status (polling — works for both ClaudeRunner and StatusWatcher)
         this.state.elapsedMs = this.status.elapsedMs;
         this.state.elapsedFormatted = this.status.elapsedFormatted;
         this.state.claudeState = this.status.state;
 
-        // Fire notification sound once when Claude finishes
-        if (
-          prevClaudeState !== "done" &&
-          this.state.claudeState === "done" &&
-          !this.claudeDoneNotified
-        ) {
-          this.claudeDoneNotified = true;
-          playClaudeDone();
+        // Process notes that flew past the hit zone
+        processMissedNotes(
+          this.state.currentTimeMs,
+          this.song.notes,
+          this.state,
+        );
+
+        // Expire feedback overlay
+        if (this.feedbackKind && frameStart > this.feedbackUntilMs) {
+          this.feedbackKind = null;
         }
 
-        // ── Exit conditions ────────────────────────────────────────────────
-        if (this.state.quitRequested || this.state.gameOver) {
+        // Render
+        renderFrame(this.state, this.song, {
+          feedback: this.feedbackKind,
+          feedbackLane: this.feedbackLane,
+        });
+
+        // End condition: Claude done + 2 s past last note
+        const allNotesPast =
+          this.state.currentTimeMs > this.lastNoteTimeMs() + 2000;
+        if (this.state.claudeState === "done" && allNotesPast) {
           resolve();
           return;
         }
-
-        if (
-          this.state.claudeState === "done" &&
-          this.state.autoStopOnClaudeDone
-        ) {
-          if (!this.state.clearReason) this.state.clearReason = "claude-done";
-          resolve();
-          return;
-        }
-
-        // ── Gravity ────────────────────────────────────────────────────────
-        if (!this.state.isPaused) {
-          gravityDrop(this.state, frameStart);
-        }
-        // Play line-clear sound (pendingLineClear set by lockPiece regardless of source)
-        if (this.state.pendingLineClear > 0) {
-          playLineClear();
-          this.state.pendingLineClear = 0;
-        }
-
-        // ── Glitch countdown ───────────────────────────────────────────────
-        if (this.state.glitchFrames > 0) {
-          this.state.glitchFrames--;
-        }
-
-        // ── Render ─────────────────────────────────────────────────────────
-        renderFrame(this.state);
 
         const elapsed = performance.now() - frameStart;
         setTimeout(tick, Math.max(0, FRAME_MS - elapsed));
@@ -176,5 +132,10 @@ export class GameLoop {
 
       tick();
     });
+  }
+
+  private lastNoteTimeMs(): number {
+    if (this.song.notes.length === 0) return 0;
+    return this.song.notes[this.song.notes.length - 1].timeMs;
   }
 }

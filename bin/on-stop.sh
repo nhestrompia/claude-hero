@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# on-stop.sh — Stop hook for VibeBlock
+# on-stop.sh — Stop hook for Claude Hero
 #
 # Fires when Claude Code finishes responding.
 # Updates the status file so the game shows "Claude: DONE" and then
@@ -12,7 +12,7 @@ set -euo pipefail
 
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
-STATUS_FILE="/tmp/vibeblock-${SESSION_ID}.json"
+STATUS_FILE="/tmp/claude-hero-${SESSION_ID}.json"
 
 # Only update if the game is actually running for this session
 if [[ -f "$STATUS_FILE" ]]; then

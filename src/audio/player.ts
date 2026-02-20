@@ -28,7 +28,7 @@ export class AudioPlayer {
 
     this.proc.on("error", (err) => {
       // Audio playback errors are non-fatal — game continues silently.
-      if (process.env["VIBEBLOCK_DEBUG"]) {
+      if (process.env["CLAUDE_HERO_DEBUG"]) {
         process.stderr.write(`[audio] error: ${err.message}\n`);
       }
     });
