@@ -1,11 +1,11 @@
 {
-  "name": "claude-hero",
+  "name": "vibeblock",
   "version": "1.0.0",
-  "description": "Play a terminal rhythm game while Claude Code thinks",
+  "description": "Play a cyberpunk block-stacker while Claude Code thinks",
   "author": {
-    "name": "Claude Hero"
+    "name": "VibeBlock"
   },
-  "keywords": ["game", "rhythm", "fun", "productivity"],
+  "keywords": ["game", "blocks", "cyberpunk", "fun", "productivity"],
   "hooks": "./hooks/hooks.json",
   "commands": ["./commands/play.md"]
 }

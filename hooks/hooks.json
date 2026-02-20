@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/on-prompt.sh",
-            "statusMessage": "🎸 Claude Hero: setting up game..."
+            "statusMessage": "� VibeBlock: setting up..."
           }
         ]
       }

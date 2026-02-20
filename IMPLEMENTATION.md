@@ -1,159 +1,211 @@
-# Implementation Plan: Claude Hero — Terminal Rhythm Game for Claude Code
+# Plan: VibeBlock — Cyberpunk Block-Stacker for Claude Code
 
-## TL;DR
-
-Build a TypeScript/Node.js CLI that wraps `claude` as a subprocess, rendering a 4-lane rhythm mini-game in the terminal while Claude works. The game parses Clone Hero `.chart` files, syncs notes to audio playback, and exits cleanly when Claude finishes. The tool is distributed as an npm package and can **also** be packaged as a Claude Code plugin (using `SessionStart`/`Stop` hooks to launch/kill a side-process). The wrapper approach is the primary integration — Claude Code's hook system cannot take over the terminal for rendering, so a wrapper is architecturally required for the game UI.
+**TL;DR**: Transform the existing Guitar Hero clone ("claude-hero") into "VibeBlock" — a cyberpunk-themed block-stacking game that plays while Claude thinks. Keep the entire Claude integration layer (hooks, `IClaudeStatus`, CLI modes, audio player), but replace the rhythm-game core (chart parsing, note highway, lane-based input) with a grid-based falling-block game (12x18 board, 7 piece shapes, line clearing, gravity, levels). Add a pause toggle (P key), WASD+Space controls, and a lobby settings screen with auto-stop toggle. Full cyberpunk aesthetic: neon colors, glitch effects on clears, stylized borders, and thematic terminology.
 
 ---
 
 ## Steps
 
-### Phase 0: Project Scaffolding
+### Phase 1 — Rename & Clean Up
 
-1. Initialize a TypeScript + Node.js project at the workspace root with `package.json` (name: `claude-hero`), `tsconfig.json`, and an `src/` directory.
-2. Set up the `bin` entry in `package.json` pointing to a compiled `dist/cli.js` with a `#!/usr/bin/env node` shebang.
-3. Add dev dependencies: `typescript`, `@types/node`, a bundler/build script (plain `tsc` is fine for MVP).
-4. Add `.gitignore`, `README.md` skeleton.
+1. **Rename project** in `package.json`: change `name` to `vibeblock`, update `description`, change `bin` key from `claude-hero` to `vibeblock`. Update `README.md`, `PRD.md`, `IMPLEMENTATION.md`, `PROGRESS.md` accordingly. Purge all references to the old game name and Guitar Hero terminology.
 
-### Phase 1: Claude Wrapper & Process Monitor
+2. **Delete chart system** — remove `src/chart/` entirely (`loader.ts`, `parser.ts`, `timing.ts`, `types.ts`). These parse `.chart` rhythm files which are irrelevant to block-stacking.
 
-5. Create `src/cli.ts` — parse CLI arguments using a lightweight parser (e.g., `minimist` or hand-rolled). Accept: `claude-hero -- <claude command and args>`, `--songs <path>`, `--no-game`, `--difficulty expert`.
-6. Create `src/claude-runner.ts` — spawn the `claude` command as a child process using `child_process.spawn()`. Capture stdout/stderr into buffers. Track state: `idle → thinking → done`. Expose an `EventEmitter` with events `start`, `output`, `done`, `error`. Use `process.hrtime()` / `performance.now()` for elapsed time tracking.
-7. Emit `done` when the child process exits (code 0 or otherwise). Store exit code and full output for display after game ends.
+3. **Delete song data** — remove `songs/` directory. No chart-based songs needed. Background music support stays via the audio player.
 
-### Phase 2: Chart Parser
+4. **Delete rhythm renderers** — remove `src/renderer/note-renderer.ts` (note highway) and `src/renderer/song-picker.ts` (song selection UI). These are replaced by the board renderer.
 
-8. Create `src/chart/parser.ts` — parse `.chart` files (text-based format). Handle sections: `[Song]` (metadata — `Resolution`, `Offset`, `Name`, `Artist`), `[SyncTrack]` (BPM events as `tick = B bpm_value`), `[ExpertSingle]` (note events as `tick = N fret duration`).
-9. Create `src/chart/types.ts` — define types: `ChartFile`, `SongMetadata`, `BPMEvent`, `NoteEvent`, `TimedNote` (post-conversion with `timeMs`, `lane`, `durationMs`).
-10. Create `src/chart/timing.ts` — convert tick-based chart events to millisecond timestamps. Walk BPM changes chronologically: for each note tick, find the active BPM, compute `msPerBeat = 60000 / bpm`, and `timeMs = accumulatedMs + ((tick - lastBPMTick) / resolution) * msPerBeat + offset`. Output a `TimedNote[]` sorted by `timeMs`.
-11. Create `src/chart/loader.ts` — given a songs directory, find all valid song folders (must contain a `.chart` file + audio file). Pick one at random. Parse `.chart` and `song.ini` (if present, extract title/artist). Return a `Song` object containing metadata, timed notes, and audio file path.
+5. **Update hook scripts** — in `bin/on-prompt.sh`, change the dialog text from "Play Claude Hero?" to **"Play VibeBlock?"**, update all references. Change the `cli.js` invocation if the binary name changes. Same cleanup in `bin/on-stop.sh`. Update `hooks/hooks.json` if filenames change.
 
-### Phase 3: Terminal Rendering & Input
+6. **Update slash command** — rewrite `commands/play.md` for VibeBlock.
 
-12. Create `src/renderer/screen.ts` — use raw ANSI escape codes (not blessed — too heavy for a fast game loop). Enter alternate screen buffer (`\x1b[?1049h`), hide cursor, enable raw mode on stdin. On exit, restore terminal. This gives us full terminal control and zero dependencies.
-13. Create `src/renderer/game-view.ts` — render the game frame at ~60fps using `setInterval` or `setTimeout` with drift correction. Layout:
-    - **Row 0 (header)**: `Claude: THINKING | Time 8.2s | Score 4200 | Combo x3 | q quit`
-    - **Rows 1–N (lanes)**: 4 vertical lanes (A, S, D, F). Notes scroll downward. The "hit zone" is near the bottom. Notes are rendered as colored blocks/characters: lane 0 = green, 1 = red, 2 = yellow, 3 = blue (Clone Hero colors).
-    - **Bottom row**: Lane labels `[A] [S] [D] [F]` with hit zone indicator.
-14. Create `src/renderer/note-renderer.ts` — given `currentTimeMs`, compute which notes are visible in the viewport (e.g., notes within `currentTime - 200ms` to `currentTime + 2000ms`). Map their time position to a Y row on screen. Render each note as a colored character at its (lane, row) position.
-15. Create `src/input/keyboard.ts` — listen for raw keypress events on `process.stdin` in raw mode. Map keys: `a/A` → lane 0, `s/S` → lane 1, `d/D` → lane 2, `f/F` → lane 3, `q/Q` → quit. Emit keypresses with `performance.now()` timestamp for hit detection.
+7. **Update install/uninstall** — `install.sh` and `uninstall.sh`: update hook registrations, binary name, and any display messages.
 
-### Phase 4: Scoring & Hit Detection
+---
 
-16. Create `src/game/scoring.ts` — implement hit detection: when a key is pressed, find the nearest unhit note in that lane. Compare `|pressTime - noteTime|`:
-    - `≤ 40ms` → Perfect (+100 pts)
-    - `≤ 90ms` → Good (+50 pts)
-    - `> 90ms` → Miss (0 pts)
+### Phase 2 — New Game Types & State
 
-    Track combo counter (reset on miss), multiplier (increases every 10 consecutive hits), total score, hits/misses/perfects counters.
+8. **Create `src/game/pieces.ts`** — Define 7 block shapes (I, O, T, S, Z, J, L) using 2D boolean matrices for all 4 rotation states. Each shape gets a cyberpunk-themed neon color (not the classic palette). Example:
+   - I-piece → electric cyan
+   - T-piece → neon magenta
+   - S-piece → hot pink
+   - Z-piece → neon orange
+   - O-piece → neon yellow
+   - L-piece → electric blue
+   - J-piece → acid green
 
-17. Create `src/game/state.ts` — central game state: `currentTimeMs`, `score`, `combo`, `multiplier`, `activeNotes[]`, `hitNotes: Set<number>`, `isRunning`, `claudeState`. Updated each frame.
+   Export a `Piece` type (`{ shape: boolean[][], color: string, rotation: 0|1|2|3 }`) and a `getRandomPiece()` function using a 7-bag randomizer (each bag contains one of each piece shuffled).
 
-### Phase 5: Audio Sync
+9. **Rewrite `src/game/state.ts`** — Replace rhythm-game state with block-stacker state:
+   - `board: (string | null)[][]` — 12 columns × 18 visible rows (+ 2 hidden buffer rows at top)
+   - `currentPiece`, `currentX`, `currentY`, `currentRotation`
+   - `nextPiece`, `heldPiece`, `canHold`
+   - `score`, `level`, `linesCleared`, `totalLinesCleared`
+   - `combo` (consecutive clears)
+   - `isRunning`, `isPaused`, `quitRequested`, `gameOver`
+   - `claudeState`, `elapsedMs`, `autoStopOnClaudeDone: boolean`
+   - `lastDropTime`, `dropInterval` (gravity speed)
+   - `activeKeys: Set<string>`
+   - Create `createInitialState()` accordingly.
 
-18. Create `src/audio/player.ts` — platform-aware audio player. Detect OS: macOS → spawn `afplay <file>`, Linux → spawn `ffplay -nodisp -autoexit <file>`. Record `audioStartTimestamp = performance.now()` at spawn time. Expose `kill()` to stop playback immediately.
-19. In the game loop (`src/game/loop.ts`), compute `currentTimeMs = performance.now() - audioStartTimestamp`. Use this as the single source of truth for note positions, hit windows, and rendering. This ensures notes sync to audio.
-20. Handle audio offset from chart metadata: add `song.offset` to the time calculation.
+10. **Rewrite `src/game/scoring.ts`** — Line-clear scoring:
+    - 1 line = 100 × level
+    - 2 lines = 300 × level
+    - 3 lines = 500 × level
+    - 4 lines = 800 × level
+    - Combo bonus: consecutive clears multiply further
+    - Level up every 10 lines cleared
+    - Drop speed: starts at ~1000ms per row drop, decreases ~50ms per level (min ~100ms)
+    - Export `processLineClear()`, `calculateScore()`, `getDropInterval()`.
 
-### Phase 6: Game Loop Integration
+---
 
-21. Create `src/game/loop.ts` — the main game loop:
-    ```
-    startAudio()
-    while (claudeRunner.state !== 'done' && !quit) {
-      currentTime = now() - audioStartTime
-      processInput(pendingKeys)
-      updateState(currentTime)
-      render(state)
-      await nextFrame() // ~16ms interval
-    }
-    stopAudio()
-    showResults()
-    showClaudeOutput()
-    ```
-22. On `claudeRunner.done` event: set a flag, let the current frame finish, then transition to results screen.
-23. Create `src/game/results.ts` — render final score, accuracy %, perfect/good/miss counts, max combo, song name. Then clear screen and print Claude's captured stdout/stderr.
+### Phase 3 — Board Logic
 
-### Phase 7: Claude Code Plugin (Optional Integration)
+11. **Create `src/game/board.ts`** — Core board operations (pure functions):
+    - `createEmptyBoard(rows, cols)` — 22×10 grid of nulls
+    - `canPlace(board, piece, x, y, rotation)` — collision detection
+    - `placePiece(board, piece, x, y, rotation)` — writes piece colors to board cells
+    - `clearLines(board)` — detects & removes full rows, returns count of cleared lines
+    - `getGhostY(board, piece, x, y, rotation)` — hard-drop projection (ghost piece Y)
+    - `isGameOver(board)` — checks if any cell in hidden buffer rows (row 0-1) is filled
+    - Basic wall-kick table: on rotation, try offset positions `(0,0), (±1,0), (0,-1), (±1,-1)`. Not full SRS but functional.
 
-24. Create `.claude-plugin/plugin.json` with metadata for the plugin.
-25. Create `hooks/hooks.json` with a `SessionStart` hook that prompts the user "Play a game while waiting? (y/n)" — but since hooks can't take over the terminal for interactive rendering, this hook would instead write a marker file or set an env var.
-26. The **practical plugin approach**: create a `commands/play.md` slash command (`/play`) that tells the user to use `claude-hero` as a wrapper instead, or creates a skill that provides context about the game.
-27. **Alternative tmux integration**: A `SessionStart` hook could spawn `claude-hero --standalone` in a **tmux split pane** if tmux is detected, providing a side-by-side experience. The `Stop` hook sends a kill signal. This is the most realistic "plugin" integration since the game needs its own terminal.
+12. **Create `src/game/actions.ts`** — Maps user actions to state mutations:
+    - `moveLeft(state)`, `moveRight(state)` — shift piece ±1 if `canPlace`
+    - `rotate(state)` — try rotation + wall kicks
+    - `softDrop(state)` — move down 1 row, add 1 to score
+    - `hardDrop(state)` — instant drop to ghost position, lock piece, add 2×distance to score
+    - `lockPiece(state)` — place piece on board, clear lines, update score, spawn next piece
+    - `hold(state)` — swap current with held piece (once per drop)
+    - `togglePause(state)` — flip `isPaused`
+    - Each returns a new state (or mutates in place, matching existing patterns).
 
-### Phase 8: Song Starter Pack & Polish
+---
 
-28. Create `songs/` directory structure. Source 5–10 simple, legally redistributable songs for MVP (original compositions, CC0-licensed, or public domain). Full 50-song pack is a stretch goal.
-29. Add `song.ini` files with metadata for each bundled song.
-30. Handle edge cases: terminal resize (re-render), missing audio binary (graceful error), no songs found (error message), Claude crashes (show error, exit cleanly), song ends before Claude finishes (loop song or show "waiting..." screen).
-31. Add `--no-game` flag: passes through to `claude` directly with no game UI (just a wrapper).
+### Phase 4 — Input
+
+13. **Rewrite `src/input/keyboard.ts`** — New key mappings:
+    - `A` → move left
+    - `D` → move right
+    - `W` → rotate clockwise
+    - `S` → soft drop
+    - `Space` → hard drop
+    - `E` → hold piece
+    - `P` → pause/unpause
+    - `Q` → quit
+    - Emit events: `move-left`, `move-right`, `rotate`, `soft-drop`, `hard-drop`, `hold`, `pause`, `quit`
+    - Support key repeat for move left/right and soft drop (DAS — Delayed Auto Shift ~170ms initial, ~50ms repeat). This uses auto-repeat tracking in the keyboard handler rather than relying on terminal key repeat.
+
+---
+
+### Phase 5 — Rendering (Cyberpunk Theme)
+
+14. **Rewrite `src/renderer/screen.ts`** — Replace `LANE_COLORS`/`LANE_BG_COLORS` with a cyberpunk neon palette using 256-color or true-color ANSI (`\x1b[38;2;r;g;bm`):
+    - Neon cyan `(0,255,255)`, magenta `(255,0,255)`, hot pink `(255,105,180)`, acid green `(57,255,20)`, neon yellow `(230,255,0)`, neon orange `(255,102,0)`, electric blue `(125,249,255)`
+    - Dark background tones for board: `(10,10,25)` or `(15,5,20)`
+    - Border style: double-line box drawing (╔═╗║╚╝) or cyberpunk-styled custom characters
+    - Glitch effect function: randomly replaces a few characters with `░▒▓█` or shifts colors briefly (used on line clears)
+    - Keep `enterGameMode()`, `exitGameMode()`, `writeAt()`, `getTermSize()`.
+
+15. **Rewrite `src/renderer/game-view.ts`** — Compose the full frame:
+    - **Left panel**: The 10×20 game board (each cell is 2 chars wide — `██` for filled, `··` for empty). Board border with cyberpunk-styled box. Ghost piece rendered in dimmed/transparent version of piece color.
+    - **Right panel**:
+      - "NEXT" piece preview (small 4×4 grid)
+      - "HOLD" piece preview
+      - Score, Level, Lines displays (neon-styled labels)
+      - "Claude: SYNCING" / "Claude: DONE" status
+      - Controls help
+    - **Top bar**: Game title "▸ VIBEBLOCK" with neon glow, elapsed time, pause indicator `[PAUSED]` when active
+    - **Bottom bar**: `[P] PAUSE  [Q] QUIT`
+    - On line clear: trigger brief glitch effect (1-2 frames of `░▒▓` replacing the cleared rows before they vanish)
+    - When paused: overlay "⟐ PAUSED ⟐" centered on the board with dimmed board behind
+
+16. **Create `src/renderer/effects.ts`** — Cyberpunk visual effects:
+    - `glitchRow(row, col, width)` — writes random glitch chars in neon colors
+    - `neonText(text, color)` — wraps text in true-color ANSI
+    - `pulseColor(baseColor, frameCount)` — subtle color pulse animation
+    - `matrixDrip(col, row)` — optional: single column of falling characters (for lobby screen background)
+
+---
+
+### Phase 6 — Game Loop
+
+17. **Rewrite `src/game/loop.ts`** — Adapt the 60fps loop for block-stacking:
+    - Keep: `enterGameMode()`, `exitGameMode()`, `performance.now()`-based clock, `setTimeout`-based tick with drift correction, Claude status polling
+    - Replace rhythm logic with:
+      - Gravity tick: if `currentTimeMs - lastDropTime >= dropInterval` and not paused → soft-drop piece automatically
+      - Process keyboard events (already handled via event emitter)
+      - On piece lock → `clearLines()` → `calculateScore()` → spawn next piece → check game over
+      - End conditions: `gameOver === true` (board full) OR (`claudeState === 'done'` AND `autoStopOnClaudeDone` setting is true)
+      - When paused: skip gravity and input processing, keep rendering (with pause overlay)
+    - Audio: keep `AudioPlayer` integration for background music (optional — game works without it)
+
+---
+
+### Phase 7 — Results
+
+18. **Rewrite `src/game/results.ts`** — Post-game cyberpunk results screen:
+    - Display: Final score, Level reached, Lines cleared, Singles/Doubles/Triples/Quads breakdown
+    - Grade: S / A / B / C / D based on score thresholds relative to game duration
+    - Reason ended: "BOARD OVERFLOW" or "NEURAL SYNC COMPLETE" (Claude done) or "OPERATOR EXIT" (quit)
+    - Claude elapsed time
+    - Keep: dump Claude stdout in CLI wrapper mode
+    - Style: neon box border, glitch effect on grade reveal
+
+---
+
+### Phase 8 — Lobby & Settings
+
+19. **Rewrite `src/game/lobby.ts`** — Enhanced lobby with settings:
+    - Keep: PID writing, trigger file polling, Q to quit
+    - Add: settings menu accessible from lobby
+      - `[S] Settings` option in lobby
+      - Setting 1: **Auto-stop when Claude finishes** (default: ON). Toggle with Enter. Stored in a settings JSON file (`/tmp/vibeblock-settings.json` or similar).
+      - Setting 2: **Starting level** (1-10, adjust with ←/→)
+    - Cyberpunk lobby screen: neon ASCII art title "VIBEBLOCK", matrix-drip background effect, "AWAITING NEURAL LINK..." status message
+    - Back to lobby from settings with Escape
+
+---
+
+### Phase 9 — CLI Entry Point
+
+20. **Rewrite `src/cli.ts`** — Update the two code paths:
+    - **Plugin mode**: `lobby → (trigger) → game loop → results → lobby` (remove song picker)
+    - **CLI wrapper mode**: `game loop → results → exit` (remove song picker)
+    - Remove all `SongLoader` and `pickSong` imports
+    - Add `--level` flag to `src/args.ts` (starting level override)
+    - Remove `--songs` and `--difficulty` flags, keep `--status-file` and `--no-game`
+
+---
+
+### Phase 10 — Prompt & Documentation
+
+21. **Update `bin/on-prompt.sh`** — Change dialog to "Start VibeBlock?". Keep the terminal-opening logic. Update temp file names from `claude-hero-*` to `vibeblock-*`.
+
+22. **Update all docs**: `README.md` — new name, description, screenshots section, controls reference, cyberpunk theme mention. `PRD.md` — block-stacker product requirements. `IMPLEMENTATION.md` — updated architecture. `PROGRESS.md` — reset for new implementation.
 
 ---
 
 ## Verification
 
-- **Unit tests for chart parser**: parse a known `.chart` file and assert correct `TimedNote[]` output, especially BPM change handling.
-- **Unit tests for timing conversion**: verify tick→ms math with known BPM/resolution values.
-- **Unit tests for scoring**: simulate keypresses at known offsets and verify Perfect/Good/Miss classification.
-- **Integration test**: run `claude-hero -- echo "hello"` (wrapping `echo` instead of `claude`), verify game starts, `echo` completes instantly, game exits, and "hello" is printed.
-- **Manual test**: run `claude-hero -- claude "explain this file"` end-to-end, verify audio sync, note rendering, input responsiveness, and clean exit.
-- **Platform test**: verify macOS audio playback with `afplay`, Linux with `ffplay`.
+- `npm run build` compiles cleanly with no TypeScript errors
+- `node dist/cli.js -- echo "test"` launches game in CLI wrapper mode, board renders, pieces fall, WASD+Space controls work, P pauses, Q quits, game ends when echo finishes
+- `node dist/cli.js --status-file /tmp/test.json` launches in plugin mode, lobby screen shows with settings, pressing S opens settings, auto-stop toggle works
+- Line clears increment score correctly (100/300/500/800 × level)
+- Board-full triggers game over screen
+- Glitch effects appear briefly on line clear
+- Neon colors render correctly in terminals with true-color support
+- `./install.sh` registers hooks, dialog shows "Play VibeBlock?" on Claude prompt
 
 ---
 
-## Key Decisions
+## Decisions
 
-| Decision          | Chose                                            | Over                         | Why                                                                                                                            |
-| ----------------- | ------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Integration model | CLI wrapper (`claude-hero -- claude ...`)        | Claude Code plugin/hook      | Hooks run as subprocesses and cannot take over terminal for interactive rendering. A wrapper owns the terminal.                |
-| Rendering         | Raw ANSI escape codes via `process.stdout.write` | `blessed` library            | `blessed` is unmaintained (last publish 10 years ago) and heavyweight. Raw ANSI gives full control, zero deps, max frame rate. |
-| Language          | TypeScript / Node.js                             | Python, Go, Rust             | Matches Claude Code ecosystem (npm-distributable), excellent cross-platform subprocess management, raw terminal I/O support.   |
-| Timing clock      | `performance.now()` (monotonic)                  | `Date.now()`                 | Monotonic high-resolution clock avoids drift. All game time is relative to `audioStartTimestamp`.                              |
-| Lane count        | 4 lanes (A/S/D/F)                                | 5 lanes (Clone Hero default) | Simplified to keep it "tiny and delightful," not a full game product.                                                          |
-| Chart difficulty  | ExpertSingle only                                | Multiple difficulties        | Keeps parser simple per PRD scope.                                                                                             |
-| Plugin fallback   | tmux split pane via `SessionStart` hook          | Direct terminal takeover     | Only realistic way to run an interactive game alongside Claude Code's own terminal UI.                                         |
-
----
-
-## File Structure
-
-claude-hero/
-├── package.json
-├── tsconfig.json
-├── .gitignore
-├── README.md
-├── PRD.md
-├── implementation.md
-├── src/
-│ ├── cli.ts # Entry point, arg parsing
-│ ├── claude-runner.ts # Claude subprocess wrapper
-│ ├── chart/
-│ │ ├── types.ts # Chart data types
-│ │ ├── parser.ts # .chart file parser
-│ │ ├── timing.ts # Tick → ms conversion
-│ │ └── loader.ts # Song folder discovery & loading
-│ ├── renderer/
-│ │ ├── screen.ts # Terminal setup/teardown, ANSI helpers
-│ │ ├── game-view.ts # Frame composition & rendering
-│ │ └── note-renderer.ts # Note positioning & drawing
-│ ├── input/
-│ │ └── keyboard.ts # Raw keypress handling
-│ ├── audio/
-│ │ └── player.ts # Cross-platform audio playback
-│ └── game/
-│ ├── state.ts # Central game state
-│ ├── scoring.ts # Hit detection & scoring
-│ ├── loop.ts # Main game loop
-│ └── results.ts # End-of-game results screen
-├── songs/
-│ └── starter-pack/ # Bundled songs (legally clear)
-│ └── <song-name>/
-│ ├── notes.chart
-│ ├── song.ini
-│ └── song.ogg
-├── .claude-plugin/ # Optional Claude Code plugin
-│ └── plugin.json
-├── hooks/
-│ └── hooks.json # SessionStart/Stop hooks (tmux approach)
-└── commands/
-└── play.md # /play slash command
+- **Custom color palette**: neon cyberpunk colors, not the standard guideline colors
+- **Simplified wall kicks**: try 4 offset positions on rotation rather than full SRS table — keeps it functional without copying SRS exactly
+- **7-bag randomizer**: standard fairness approach, no trademark concern
+- **Settings stored in temp file**: `/tmp/vibeblock-settings.json` — ephemeral, no persistent config needed
+- **DAS (Delayed Auto Shift)**: implemented in keyboard handler for responsive left/right movement
+- **Game end**: either condition (board full OR Claude done if auto-stop enabled), plus manual quit
