@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command installer for the Claude Hero plugin
+# install.sh — one-command installer for the VibeBlock plugin
 #
 # Usage: ./install.sh [--scope user|project|local]
 #
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCOPE="${1:-user}"
 if [[ "$SCOPE" == "--scope" ]]; then SCOPE="${2:-user}"; fi
 
-echo "🎸 Installing Claude Hero..."
+echo "� Installing VibeBlock..."
 echo ""
 
 # ── Build ────────────────────────────────────────────────────────────────────
@@ -64,14 +64,14 @@ UPDATED=$(jq \
   .hooks.UserPromptSubmit = (
     (.hooks.UserPromptSubmit // []) |
     map(select(
-      (.hooks[0].command | test("claude-hero")) | not
+      (.hooks[0].command | test("vibeblock")) | not
     )) +
-    [{"hooks": [{"type": "command", "command": $prompt, "statusMessage": "Claude Hero is setting up..."}]}]
+    [{"hooks": [{"type": "command", "command": $prompt, "statusMessage": "🎮 VibeBlock: setting up..."}]}]
   ) |
   .hooks.Stop = (
     (.hooks.Stop // []) |
     map(select(
-      (.hooks[0].command | test("claude-hero")) | not
+      (.hooks[0].command | test("vibeblock")) | not
     )) +
     [{"hooks": [{"type": "command", "command": $stop, "async": true}]}]
   )
@@ -81,10 +81,9 @@ echo "$UPDATED" > "$SETTINGS_FILE"
 echo "   ✓ Hooks registered"
 
 echo ""
-echo "✅ Claude Hero is ready!"
+echo "✅ VibeBlock is ready!"
 echo ""
 echo "   Start Claude Code and ask any question — it will offer to play."
 echo "   For tmux: run Claude Code inside a tmux session for a split-pane game window."
-echo "   Custom songs: export CLAUDE_HERO_SONGS=/path/to/songs"
 echo ""
 echo "   To uninstall, run: ./uninstall.sh"

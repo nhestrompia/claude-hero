@@ -1,96 +1,61 @@
-# Claude Hero
+# VibeBlock
 
-A terminal rhythm game that runs inside Claude Code while you wait for Claude to think.
-
-https://github.com/user-attachments/assets/604da9bf-bff4-44f1-8b12-5a6f74146944
-
+A cyberpunk block-stacker terminal game that runs as a Claude Code plugin while you wait for Claude to think.
 
 ## Install
 
 ```bash
-git clone <repo> claude-hero
-cd claude-hero
-./install.sh          # builds + installs as a Claude Code plugin
-
-
-
+git clone <repo> vibeblock
+cd vibeblock
+./install.sh
 ```
 
 Requires: `node >= 18`, `jq`, `claude` CLI.
 
 ## How it works
 
-Once installed, every time you send a message to Claude Code:
+Once installed, every time you send a message to Claude Code a dialog appears:
 
-```
-Claude Hero: Play while Claude thinks? [y/N]
-```
+> **Play VibeBlock while you wait?** [Skip] [Play!]
 
-Say **y** and the game opens in a new terminal pane/window.
-Press A/S/D/F to hit notes as they fall.
-The header shows Claude's status in real time:
-
-```
-Claude: THINKING  |  Time 4.1s  |  Score 2400  |  Combo x8  |  q quit
-```
-
-When Claude finishes, the header flips to `Claude: DONE` and the game wraps up with a results screen.
+Click **Play!** and the game opens in a new terminal pane or window.
+Stack blocks, clear lines, and score points while Claude processes your request.
+The title bar shows the Claude status live — **◌ SYNCING...** → **● DONE**.
 
 ## Controls
 
-| Key | Lane | Color  |
-| --- | ---- | ------ |
-| A   | 0    | Green  |
-| S   | 1    | Red    |
-| D   | 2    | Yellow |
-| F   | 3    | Blue   |
-| Q   | --   | Quit   |
-
-## Scoring
-
-| Result  | Window | Points           |
-| ------- | ------ | ---------------- |
-| Perfect | +-40ms | 100 x multiplier |
-| Good    | +-90ms | 50 x multiplier  |
-| Miss    | --     | 0, breaks combo  |
-
-Multiplier increases every 10 consecutive hits (max x4). Grades: FC / S / A / B / C / D.
-
-## Terminal setup
-
-| Setup | Experience                         |
-| ----- | ---------------------------------- |
-| tmux  | Automatic split pane - recommended |
-| macOS | New Terminal.app window            |
-| Linux | New xterm/gnome-terminal window    |
-
-## Add your own songs
-
-Drop Clone Hero `.chart` song folders into any directory, then:
-
-```bash
-export CLAUDE_HERO_SONGS=/path/to/your/songs
+```
+[W] Rotate   [A] Left   [D] Right   [S] Soft drop
+[Space] Hard drop   [E] Hold   [P] Pause   [M] Sound   [Q] Quit
 ```
 
-## Song format
+## CLI wrapper mode
 
-Claude Hero reads Clone Hero `.chart` files:
+Run any command and play while it processes:
 
-- `notes.chart` - required (uses [ExpertSingle] section)
-- `song.ini` - optional metadata (name, artist)
-- `song.ogg` / `song.mp3` - optional audio
+```bash
+vibeblock -- npm test
+vibeblock --level 5 -- make build
+```
 
-## Plugin hooks
+## Sound effects
 
-The plugin registers two Claude Code hooks:
+Drop `.wav` files in `sounds/`:
 
-| Hook             | When it fires                   | What it does                            |
-| ---------------- | ------------------------------- | --------------------------------------- |
-| UserPromptSubmit | Every time you send a message   | Asks if you want to play, launches game |
-| Stop             | When Claude finishes responding | Signals game that Claude is done        |
+- `move.wav` — on block move / rotate / hold
+- `clean.wav` — on line clear
+- `notification.wav` — when Claude finishes
+
+Sound is **off by default**. Press **M** in-game to toggle.
+
+## Debug
+
+```bash
+VIBEBLOCK_DEBUG=1 node dist/cli.js --status-file /tmp/test.json
+```
 
 ## Uninstall
 
 ```bash
-claude plugin uninstall claude-hero
+./uninstall.sh
 ```

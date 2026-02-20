@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# on-prompt.sh — UserPromptSubmit hook for Claude Hero
+# on-prompt.sh — UserPromptSubmit hook for VibeBlock
 #
 # Fires when the user submits a prompt to Claude Code.
 # On macOS: shows a native dialog via osascript (works regardless of TTY state).
-# On Linux: auto-launches if CLAUDE_HERO_AUTO=1, otherwise skips.
+# On Linux: auto-launches if VIBEBLOCK_AUTO=1, otherwise skips.
 #
 # Receives JSON on stdin:
 #   { "session_id": "...", "prompt": "...", "cwd": "...", ... }
@@ -13,7 +13,7 @@ set -euo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
-STATUS_FILE="/tmp/claude-hero-${SESSION_ID}.json"
+STATUS_FILE="/tmp/vibeblock-${SESSION_ID}.json"
 
 # Don't re-launch if a game is already running for this session
 if [[ -f "$STATUS_FILE" ]]; then
@@ -31,13 +31,13 @@ if [[ "$(uname)" == "Darwin" ]]; then
   # On gave up / cancel / Skip: osascript exits non-zero → ANSWER stays "n".
   # On Play!: osascript prints "Play!" and exits 0.
   BTN=$(osascript \
-    -e 'set d to display dialog "Claude is thinking...\n\nPlay Claude Hero while you wait?" buttons {"Skip", "Play!"} default button "Play!" with title "Claude Hero" giving up after 15' \
+    -e 'set d to display dialog "Claude is thinking...\n\nPlay VibeBlock while you wait?" buttons {"Skip", "Play!"} default button "Play!" with title "VibeBlock" giving up after 15' \
     -e 'if gave up of d then error "gave up"' \
     -e 'button returned of d' \
     2>/dev/null) && [[ "$BTN" == "Play!" ]] && ANSWER="y" || true
 else
-  # Linux: respect CLAUDE_HERO_AUTO env var or skip
-  if [[ "${CLAUDE_HERO_AUTO:-0}" == "1" ]]; then
+  # Linux: respect VIBEBLOCK_AUTO env var or skip
+  if [[ "${VIBEBLOCK_AUTO:-0}" == "1" ]]; then
     ANSWER="y"
   fi
 fi
@@ -53,8 +53,8 @@ cat > "$STATUS_FILE" <<EOF
 EOF
 
 # ── If lobby window is already open, trigger it instead of spawning new terminal ──
-LOBBY_FILE="/tmp/claude-hero-lobby.json"
-TRIGGER_FILE="/tmp/claude-hero-trigger.json"
+LOBBY_FILE="/tmp/vibeblock-lobby.json"
+TRIGGER_FILE="/tmp/vibeblock-trigger.json"
 
 if [[ -f "$LOBBY_FILE" ]]; then
   LOBBY_PID=$(jq -r '.pid // ""' "$LOBBY_FILE" 2>/dev/null || true)
@@ -68,15 +68,9 @@ if [[ -f "$LOBBY_FILE" ]]; then
 fi
 
 # ── Build the game command ────────────────────────────────────────────────────
-SONGS_DIR="${PLUGIN_ROOT}/songs"
 GAME_BIN="${PLUGIN_ROOT}/dist/cli.js"
 
-# Prefer a user-defined songs library if set
-if [[ -n "${CLAUDE_HERO_SONGS:-}" ]]; then
-  SONGS_DIR="$CLAUDE_HERO_SONGS"
-fi
-
-GAME_CMD="node \"${GAME_BIN}\" --status-file \"${STATUS_FILE}\" --songs \"${SONGS_DIR}\""
+GAME_CMD="node \"${GAME_BIN}\" --status-file \"${STATUS_FILE}\""
 
 # ── Launch in the best available terminal ─────────────────────────────────────
 
@@ -113,5 +107,5 @@ done
 
 # 4. Fallback: run in background (no separate window)
 # This won't show the UI but at least doesn't block Claude Code
-echo "[claude-hero] No supported terminal found. Set up tmux for the best experience." >&2
+echo "[vibeblock] No supported terminal found. Set up tmux for the best experience." >&2
 exit 0

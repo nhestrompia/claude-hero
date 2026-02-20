@@ -60,20 +60,22 @@ export const ansi = {
   },
 };
 
-// Lane color scheme (Clone Hero inspired: green, red, yellow, blue)
-export const LANE_COLORS = [
-  ansi.fg.brightGreen,
-  ansi.fg.brightRed,
-  ansi.fg.brightYellow,
-  ansi.fg.brightBlue,
-];
+// ── Cyberpunk neon palette (true-color) ────────────────────────────────────
+export const NEON = {
+  cyan: "\x1b[38;2;0;255;255m",
+  magenta: "\x1b[38;2;255;0;255m",
+  pink: "\x1b[38;2;255;105;180m",
+  green: "\x1b[38;2;57;255;20m",
+  yellow: "\x1b[38;2;230;255;0m",
+  orange: "\x1b[38;2;255;102;0m",
+  blue: "\x1b[38;2;125;149;255m",
+  // dim variants for borders / accents
+  dimCyan: "\x1b[38;2;0;140;140m",
+  dimMagenta: "\x1b[38;2;140;0;140m",
+};
 
-export const LANE_BG_COLORS = [
-  ansi.bg.green,
-  ansi.bg.red,
-  ansi.bg.yellow,
-  ansi.bg.blue,
-];
+export const BG_DARK = "\x1b[48;2;8;4;20m"; // deep purple-black
+export const BG_CELL = "\x1b[48;2;18;12;36m"; // slightly lighter empty cell
 
 let rawModeActive = false;
 let altScreenActive = false;
