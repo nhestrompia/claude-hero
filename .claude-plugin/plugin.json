@@ -1,0 +1,11 @@
+{
+  "name": "claude-hero",
+  "version": "1.0.0",
+  "description": "Play a terminal rhythm game while Claude Code thinks",
+  "author": {
+    "name": "Claude Hero"
+  },
+  "keywords": ["game", "rhythm", "fun", "productivity"],
+  "hooks": "./hooks/hooks.json",
+  "commands": ["./commands/play.md"]
+}

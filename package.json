@@ -1,9 +1,9 @@
 {
-  "name": "vibeblock",
+  "name": "claude-hero",
   "version": "0.1.0",
-  "description": "A cyberpunk block-stacking game that runs while Claude Code thinks",
+  "description": "A terminal rhythm mini-game that runs while Claude Code executes",
   "bin": {
-    "vibeblock": "./dist/cli.js"
+    "claude-hero": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -13,15 +13,16 @@
     "clean": "rm -rf dist"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "songs/"
   ],
   "keywords": [
     "claude",
     "claude-code",
-    "block-game",
+    "rhythm-game",
     "terminal",
     "cli",
-    "cyberpunk"
+    "clone-hero"
   ],
   "author": "",
   "license": "MIT",

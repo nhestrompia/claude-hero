@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall.sh — removes VibeBlock hooks from ~/.claude/settings.json
+# uninstall.sh — removes Claude Hero hooks from ~/.claude/settings.json
 
 set -euo pipefail
 
@@ -10,22 +10,22 @@ if [[ ! -f "$SETTINGS_FILE" ]]; then
   exit 0
 fi
 
-echo "Removing VibeBlock hooks from $SETTINGS_FILE..."
+echo "Removing Claude Hero hooks from $SETTINGS_FILE..."
 
 UPDATED=$(jq '
   .hooks.UserPromptSubmit = (
     (.hooks.UserPromptSubmit // []) |
     map(select(
-      (.hooks[0].command | test("vibeblock")) | not
+      (.hooks[0].command | test("claude-hero")) | not
     ))
   ) |
   .hooks.Stop = (
     (.hooks.Stop // []) |
     map(select(
-      (.hooks[0].command | test("vibeblock")) | not
+      (.hooks[0].command | test("claude-hero")) | not
     ))
   )
 ' "$SETTINGS_FILE")
 
 echo "$UPDATED" > "$SETTINGS_FILE"
-echo "Done. VibeBlock hooks removed."
+echo "Done. Claude Hero hooks removed."

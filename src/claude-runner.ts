@@ -86,7 +86,7 @@ export class ClaudeRunner extends EventEmitter {
       this.finishedAt = performance.now();
       this.state = "done";
       this.exitCode = 1;
-      this.errorOutput += `\n[vibeblock] Failed to start process: ${err.message}\n`;
+      this.errorOutput += `\n[claude-hero] Failed to start process: ${err.message}\n`;
       this.emit("done", 1);
     });
   }

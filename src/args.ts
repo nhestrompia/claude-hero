@@ -1,42 +1,57 @@
 /**
- * CLI argument parser for VibeBlock.
+ * Minimal CLI argument parser — no dependencies.
  *
- * Plugin mode:   vibeblock --status-file /tmp/vibeblock-<id>.json
- * Wrapper mode:  vibeblock [options] -- <command> [args...]
+ * Two operating modes:
+ *
+ * 1. Plugin mode (launched by Claude Code hook):
+ *      claude-hero --status-file /tmp/claude-hero-<id>.json [--songs <dir>]
+ *      Shows the rhythm game; reads Claude's status from the file.
+ *
+ * 2. CLI wrapper mode (legacy):
+ *      claude-hero [options] -- <command> [command args...]
+ *      Wraps a command and shows the game while it runs.
  */
 
 export interface ParsedArgs {
-  /** Plugin mode: path to the JSON status file written by hooks. */
+  /** Plugin mode: path to the JSON status file written by hooks */
   statusFile: string | undefined;
-  /** Wrapped command and its arguments (CLI wrapper mode). */
+  /** The wrapped command and its arguments (CLI wrapper mode) */
   command: string[];
-  /** Pass-through — skip game UI (CLI wrapper mode only). */
+  /** Custom songs directory */
+  songsDir: string | undefined;
+  /** Pass-through mode — skip game UI (CLI wrapper mode only) */
   noGame: boolean;
-  /** Override starting level (1–10). */
-  level: number | undefined;
+  /** Difficulty string (default: ExpertSingle) */
+  difficulty: string;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = {
     statusFile: undefined,
     command: [],
+    songsDir: undefined,
     noGame: false,
-    level: undefined,
+    difficulty: "ExpertSingle",
   };
 
-  const sepIdx = argv.indexOf("--");
-  const optPart = sepIdx >= 0 ? argv.slice(0, sepIdx) : argv;
-  args.command = sepIdx >= 0 ? argv.slice(sepIdx + 1) : [];
+  // Locate the `--` separator
+  const separatorIndex = argv.indexOf("--");
+  const optionPart = separatorIndex >= 0 ? argv.slice(0, separatorIndex) : argv;
+  const commandPart = separatorIndex >= 0 ? argv.slice(separatorIndex + 1) : [];
 
-  for (let i = 0; i < optPart.length; i++) {
-    const a = optPart[i];
-    if (a === "--status-file") {
-      args.statusFile = optPart[++i];
-    } else if (a === "--no-game") {
+  args.command = commandPart;
+
+  // Parse options
+  for (let i = 0; i < optionPart.length; i++) {
+    const arg = optionPart[i];
+    if (arg === "--songs" || arg === "--songs-dir" || arg === "-s") {
+      args.songsDir = optionPart[++i];
+    } else if (arg === "--no-game") {
       args.noGame = true;
-    } else if (a === "--level") {
-      const n = parseInt(optPart[++i] ?? "1", 10);
-      args.level = isNaN(n) ? 1 : Math.max(1, Math.min(10, n));
+    } else if (arg === "--difficulty") {
+      args.difficulty = optionPart[++i] ?? "ExpertSingle";
+    } else if (arg === "--status-file") {
+      args.statusFile = optionPart[++i];
     }
   }
 
